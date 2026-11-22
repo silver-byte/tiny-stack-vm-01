@@ -1,174 +1,114 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-
-const inDir = process.env.MAKEFUN_INPUT_DIR ?? "/input";
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
-
-const LEN = new Uint8Array(256).fill(0xff);
-for (const [op, l] of [[0x00, 0], [0x01, 1], [0x02, 4], [0x03, 0], [0x04, 0], [0x05, 0], [0x06, 0], [0x07, 0],
-  [0x10, 0], [0x11, 0], [0x12, 0], [0x13, 0], [0x14, 0], [0x15, 0], [0x16, 0], [0x17, 0], [0x18, 0], [0x19, 0],
-  [0x1A, 0], [0x1B, 0], [0x1C, 0], [0x1D, 0], [0x1E, 0], [0x20, 0], [0x21, 0], [0x22, 0],
-  [0x30, 2], [0x31, 2], [0x32, 2], [0x33, 2], [0x34, 0], [0x40, 0], [0x41, 0],
-  [0x50, 0], [0x51, 0], [0x52, 0], [0x53, 0]]) LEN[op] = l;
-
-const STEPS_LIMIT = 1000000;
-const OUT_LIMIT = 65536;
-const M32 = 4294967296;
-
-function toInt(u: number): number {
-  return u >= 0x80000000 ? u - M32 : u;
-}
-
-function run(prog: Uint8Array, input: Uint8Array): { out: number[]; exit: number } {
-  const stack: number[] = [];
-  const calls: number[] = [];
-  const mem = new Int32Array(256);
-  const out: number[] = [];
-  let pc = 0;
-  let ip = 0;
-  let steps = 0;
-  const plen = prog.length;
-
-  while (true) {
-    if (steps >= STEPS_LIMIT) return { out, exit: 10 };
-    if (pc < 0 || pc >= plen) return { out, exit: 9 };
-    const op = prog[pc];
-    const immLen = LEN[op];
-    if (immLen === 0xff) return { out, exit: 5 };
-    if (pc + immLen >= plen) return { out, exit: 9 };
-    steps++;
-
-    let sp = stack.length;
-    let jumped = false;
-
-    switch (op) {
-      case 0x00: return { out, exit: 0 };
-      case 0x01: {
-        if (sp + 1 > 256) return { out, exit: 3 };
-        const pb = prog[pc + 1]; stack.push(pb >= 0x80 ? pb - 256 : pb);
-        break;
-      }
-      case 0x02: {
-        if (sp + 1 > 256) return { out, exit: 3 };
-        const v = prog[pc + 1] | (prog[pc + 2] << 8) | (prog[pc + 3] << 16) | (prog[pc + 4] << 24);
-        stack.push(v | 0);
-        break;
-      }
-      case 0x03: if (sp < 1) return { out, exit: 2 }; stack.pop(); break;
-      case 0x04: if (sp < 1) return { out, exit: 2 }; if (sp + 1 > 256) return { out, exit: 3 }; stack.push(stack[sp - 1]); break;
-      case 0x05: if (sp < 2) return { out, exit: 2 }; { const a = stack[sp - 1]; stack[sp - 1] = stack[sp - 2]; stack[sp - 2] = a; } break;
-      case 0x06: if (sp < 2) return { out, exit: 2 }; if (sp + 1 > 256) return { out, exit: 3 }; stack.push(stack[sp - 2]); break;
-      case 0x07: {
-        if (sp < 3) return { out, exit: 2 };
-        const a = stack[sp - 3]; const b = stack[sp - 2]; const c = stack[sp - 1];
-        stack.length -= 3;
-        stack.push(b, c, a);
-        break;
-      }
-      case 0x17: if (sp < 1) return { out, exit: 2 }; stack.push((-stack.pop()!) | 0); break;
-      case 0x1B: if (sp < 1) return { out, exit: 2 }; stack.push(~stack.pop()!); break;
-      case 0x10: case 0x11: case 0x12: case 0x13: case 0x14: case 0x15: case 0x16:
-      case 0x18: case 0x19: case 0x1A: case 0x1C: case 0x1D: case 0x1E:
-      case 0x20: case 0x21: case 0x22: {
-        if (sp < 2) return { out, exit: 2 };
-        const b = stack.pop()!;
-        const a = stack.pop()!;
-        let r = 0;
-        switch (op) {
-          case 0x10: r = (a + b) | 0; break;
-          case 0x11: r = (a - b) | 0; break;
-          case 0x12: r = Math.imul(a, b); break;
-          case 0x13: r = (a === -2147483648 && b === -1) ? -2147483648 : ((a / b) | 0); break;
-          case 0x14: r = (b === -1) ? 0 : (a % b); break;
-          case 0x15: r = toInt(((a >>> 0) / (b >>> 0)) >>> 0); break;
-          case 0x16: r = toInt(((a >>> 0) % (b >>> 0)) >>> 0); break;
-          case 0x18: r = a & b; break;
-          case 0x19: r = a | b; break;
-          case 0x1A: r = a ^ b; break;
-          case 0x1C: r = a << (b & 31); break;
-          case 0x1D: r = a >> (b & 31); break;
-          case 0x1E: r = (a >>> (b & 31)) | 0; break;
-          case 0x20: r = a === b ? 1 : 0; break;
-          case 0x21: r = a < b ? 1 : 0; break;
-          case 0x22: r = (a >>> 0) < (b >>> 0) ? 1 : 0; break;
+const I=process.env.MAKEFUN_INPUT_DIR??"/input";
+const O=process.env.MAKEFUN_OUTPUT_DIR??"/output";
+const L=new Uint8Array(256).fill(255);
+for(const[a,b]of[[0,7],[16,30],[32,34],[52,52],[64,65],[80,83]])for(let i=a;i<=b;i++)L[i]=0;
+L[1]=1;L[2]=4;L[48]=L[49]=L[50]=L[51]=2;
+const T=1000000,OL=65536;
+function run(p,inp){
+  const st=[],ca=[],mem=new Int32Array(256),o=[];
+  const rt=n=>({o,e:n}),oj=()=>(p[pc+1]|(p[pc+2]<<8))<<16>>16;
+  let pc=0,ip=0,s=0,sp=0;
+  while(true){
+    if(s>=T)return rt(10);
+    if(pc<0||pc>=p.length)return rt(9);
+    const op=p[pc],il=L[op];
+    if(il===255)return rt(5);
+    if(pc+il>=p.length)return rt(9);
+    s++;
+    sp=st.length;let jumped=false;
+    switch(op){
+      case 0: return rt(0);
+      case 1: if(sp+1>256)return rt(3);{const b=p[pc+1];st.push(b>=128?b-256:b);}break;
+      case 2: if(sp+1>256)return rt(3);st.push(p[pc+1]|(p[pc+2]<<8)|(p[pc+3]<<16)|(p[pc+4]<<24));break;
+      case 3: if(sp<1)return rt(2);st.pop();break;
+      case 4: if(sp<1)return rt(2);if(sp+1>256)return rt(3);st.push(st[sp-1]);break;
+      case 5: if(sp<2)return rt(2);{const a=st[sp-1];st[sp-1]=st[sp-2];st[sp-2]=a;}break;
+      case 6: if(sp<2)return rt(2);if(sp+1>256)return rt(3);st.push(st[sp-2]);break;
+      case 7: if(sp<3)return rt(2);{const a=st[sp-3],b=st[sp-2],c=st[sp-1];st.length-=3;st.push(b,c,a);}break;
+      case 23: if(sp<1)return rt(2);st.push((-st.pop()!)|0);break;
+      case 27: if(sp<1)return rt(2);st.push(~st.pop()!);break;
+      case 16:case 17:case 18:case 19:case 20:case 21:case 22:
+      case 24:case 25:case 26:case 28:case 29:case 30:case 32:case 33:case 34:{
+        if(sp<2)return rt(2);
+        const b=st.pop()!,a=st.pop()!;
+        let r=0;
+        switch(op){
+          case 16:r=(a+b)|0;break;
+          case 17:r=(a-b)|0;break;
+          case 18:r=Math.imul(a,b);break;
+          case 19:r=(a===-2147483648&&b===-1)?-2147483648:((a/b)|0);break;
+          case 20:r=(b===-1)?0:(a%b);break;
+          case 21:r=(((a>>>0)/(b>>>0))>>>0)|0;break;
+          case 22:r=(((a>>>0)%(b>>>0))>>>0)|0;break;
+          case 24:r=a&b;break;
+          case 25:r=a|b;break;
+          case 26:r=a^b;break;
+          case 28:r=a<<(b&31);break;
+          case 29:r=a>>(b&31);break;
+          case 30:r=(a>>>(b&31))|0;break;
+          case 32:r=a===b?1:0;break;
+          case 33:r=a<b?1:0;break;
+          case 34:r=(a>>>0)<(b>>>0)?1:0;break;
         }
-        if (b === 0 && (op === 0x13 || op === 0x14 || op === 0x15 || op === 0x16)) return { out, exit: 4 };
-        stack.push(r | 0);
+        if(b===0&&op>=19&&op<=22)return rt(4);
+        st.push(r|0);
         break;
       }
-      case 0x30: {
-        const off = (prog[pc + 1] | (prog[pc + 2] << 8)) << 16 >> 16;
-        pc = pc + 3 + off; jumped = true; break;
-      }
-      case 0x31: case 0x32: {
-        if (sp < 1) return { out, exit: 2 };
-        const v = stack.pop()!;
-        const off = (prog[pc + 1] | (prog[pc + 2] << 8)) << 16 >> 16;
-        if ((op === 0x31 && v === 0) || (op === 0x32 && v !== 0)) { pc = pc + 3 + off; jumped = true; }
+      case 48: pc=pc+3+oj();jumped=true;break;
+      case 49:case 50:{
+        if(sp<1)return rt(2);
+        const v=st.pop()!;
+        if((op===49)===(v===0)){pc=pc+3+oj();jumped=true;}
         break;
       }
-      case 0x33: {
-        const t = prog[pc + 1] | (prog[pc + 2] << 8);
-        if (calls.length >= 64) return { out, exit: 7 };
-        calls.push(pc + 3);
-        pc = t; jumped = true;
+      case 51:{
+        const t=p[pc+1]|(p[pc+2]<<8);
+        if(ca.length>=64)return rt(7);
+        ca.push(pc+3);pc=t;jumped=true;break;
+      }
+      case 52: if(ca.length===0)return rt(8);pc=ca.pop()!;jumped=true;break;
+      case 64:{
+        if(sp<1)return rt(2);
+        const a=st.pop()!;
+        if(a<0||a>255)return rt(6);
+        st.push(mem[a]);break;
+      }
+      case 65:{
+        if(sp<2)return rt(2);
+        const ad=st.pop()!;
+        if(ad<0||ad>255)return rt(6);
+        const v=st.pop()!;
+        mem[ad]=v;break;
+      }
+      case 80:{
+        if(sp<1)return rt(2);
+        const a=st.pop()!;
+        const s=a+"";
+        if(o.length+s.length>OL)return rt(11);
+        for(let i=0;i<s.length;i++)o.push(s.charCodeAt(i));
         break;
       }
-      case 0x34: if (calls.length === 0) return { out, exit: 8 }; pc = calls.pop()!; jumped = true; break;
-      case 0x40: {
-        if (sp < 1) return { out, exit: 2 };
-        const a = stack.pop()!;
-        if (a < 0 || a > 255) return { out, exit: 6 };
-        stack.push(mem[a]);
-        break;
+      case 81:{
+        if(sp<1)return rt(2);
+        const a=st.pop()!;
+        if(o.length>=OL)return rt(11);
+        o.push(a&255);break;
       }
-      case 0x41: {
-        if (sp < 2) return { out, exit: 2 };
-        const addr = stack.pop()!;
-        if (addr < 0 || addr > 255) return { out, exit: 6 };
-        const v = stack.pop()!;
-        mem[addr] = v;
-        break;
-      }
-      case 0x50: {
-        if (sp < 1) return { out, exit: 2 };
-        const a = stack.pop()!;
-        const s = String(a);
-        if (out.length + s.length > OUT_LIMIT) return { out, exit: 11 };
-        for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i));
-        break;
-      }
-      case 0x51: {
-        if (sp < 1) return { out, exit: 2 };
-        const a = stack.pop()!;
-        if (out.length >= OUT_LIMIT) return { out, exit: 11 };
-        out.push(a & 0xff);
-        break;
-      }
-      case 0x52: {
-        if (sp + 1 > 256) return { out, exit: 3 };
-        stack.push(ip < input.length ? input[ip++] : -1);
-        break;
-      }
-      case 0x53: if (sp < 1) return { out, exit: 2 }; return { out, exit: stack.pop()! & 0xff };
+      case 82: if(sp+1>256)return rt(3);st.push(ip<inp.length?inp[ip++]:-1);break;
+      case 83: if(sp<1)return rt(2);return rt(st.pop()!&255);
     }
-
-    if (!jumped) pc += immLen + 1;
+    if(!jumped)pc+=il+1;
   }
 }
-
-const ids = fs.readdirSync(inDir).filter((d) => {
-  const p = path.join(inDir, d);
-  return fs.existsSync(path.join(p, "program.bin"));
-}).sort();
-
-for (const id of ids) {
-  const prog = fs.readFileSync(path.join(inDir, id, "program.bin"));
-  const inp = fs.existsSync(path.join(inDir, id, "input.bin"))
-    ? fs.readFileSync(path.join(inDir, id, "input.bin")) : Buffer.alloc(0);
-  const res = run(new Uint8Array(prog), new Uint8Array(inp));
-  const dir = path.join(outDir, id);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "stdout.bin"), Buffer.from(res.out));
-  fs.writeFileSync(path.join(dir, "exit.txt"), String(res.exit) + "\n");
+const ids=fs.readdirSync(I).filter(d=>{const q=path.join(I,d);return fs.existsSync(path.join(q,"program.bin"));}).sort();
+for(const id of ids){
+  const prog=fs.readFileSync(path.join(I,id,"program.bin"));
+  const inp=fs.existsSync(path.join(I,id,"input.bin"))?fs.readFileSync(path.join(I,id,"input.bin")):Buffer.alloc(0);
+  const r=run(new Uint8Array(prog),new Uint8Array(inp));
+  const d=path.join(O,id);
+  fs.mkdirSync(d,{recursive:true});
+  fs.writeFileSync(path.join(d,"stdout.bin"),Buffer.from(r.o));
+  fs.writeFileSync(path.join(d,"exit.txt"),r.e+"\n");
 }
