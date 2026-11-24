@@ -7,7 +7,7 @@ const {memory, run, n} = new WebAssembly.Instance(new WebAssembly.Module(
   fs.readFileSync(new URL('vm.wasm', import.meta.url))
 )).exports as {memory: WebAssembly.Memory; run: (p: number, i: number) => number; n: WebAssembly.Global};
 
-for (const id of fs.readdirSync(input, {withFileTypes: true}).filter(d => d.isDirectory()).map(d => d.name).sort()) {
+function runInstance(id: string) {
   const p = fs.readFileSync(join(input, id, 'program.bin'));
   const i = fs.readFileSync(join(input, id, 'input.bin'));
   const base = p.length + i.length;
@@ -22,3 +22,7 @@ for (const id of fs.readdirSync(input, {withFileTypes: true}).filter(d => d.isDi
   fs.writeFileSync(join(dir, 'stdout.bin'), bytes.subarray(base, base + n.value));
   fs.writeFileSync(join(dir, 'exit.txt'), exit + '\n');
 }
+
+const ids = fs.readdirSync(input, {withFileTypes: true})
+  .filter(d => d.isDirectory()).map(d => d.name).sort();
+for (const id of ids) runInstance(id);
